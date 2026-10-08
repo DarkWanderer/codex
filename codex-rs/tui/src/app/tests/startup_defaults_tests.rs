@@ -5,6 +5,44 @@ use crate::app::startup::prepare_fresh_startup_config;
 use crate::app::startup::startup_model;
 use pretty_assertions::assert_eq;
 
+#[tokio::test]
+async fn remote_plan_defaults_overlay_and_launch_override() -> Result<()> {
+    let home = tempdir()?;
+    let mut config = ConfigBuilder::default()
+        .codex_home(home.path().to_path_buf())
+        .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+        .build()
+        .await?;
+    let remote = serde_json::from_value(serde_json::json!({
+        "model": "remote-implementation",
+        "plan_mode_model": "remote-plan",
+        "plan_mode_reasoning_effort": "high"
+    }))?;
+    crate::app::new_session::overlay_new_session_defaults(
+        &mut config,
+        &remote,
+        &[],
+        &ConfigOverrides::default(),
+    );
+    assert_eq!(config.plan_mode_model.as_deref(), Some("remote-plan"));
+    assert_eq!(
+        config.plan_mode_reasoning_effort,
+        Some(ReasoningEffortConfig::High)
+    );
+    config.plan_mode_model = Some("explicit".into());
+    crate::app::new_session::overlay_new_session_defaults(
+        &mut config,
+        &remote,
+        &[(
+            "plan_mode_model".into(),
+            toml::Value::String("explicit".into()),
+        )],
+        &ConfigOverrides::default(),
+    );
+    assert_eq!(config.plan_mode_model.as_deref(), Some("explicit"));
+    Ok(())
+}
+
 async fn run_startup_for_test(
     tui: &mut crate::tui::Tui,
     server: AppServerSession,

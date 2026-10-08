@@ -8325,6 +8325,44 @@ async fn cli_override_sets_compact_prompt() -> std::io::Result<()> {
 }
 
 #[tokio::test]
+async fn plan_mode_model_loads_from_root_and_profile() -> std::io::Result<()> {
+    let home = TempDir::new()?;
+    let root: ConfigToml = toml::from_str(
+        "model = 'implementation'\nplan_mode_model = 'root-plan'\nplan_mode_reasoning_effort = 'high'\n[profiles.work]\nplan_mode_model = 'profile-plan'\n",
+    )
+    .expect("valid config");
+    let base = Config::load_from_base_config_with_overrides(
+        root.clone(),
+        ConfigOverrides::default(),
+        home.abs(),
+    )
+    .await?;
+    assert_eq!(base.plan_mode_model.as_deref(), Some("root-plan"));
+    assert_eq!(base.plan_mode_reasoning_effort, Some(ReasoningEffort::High));
+    assert_eq!(
+        root.profiles["work"].plan_mode_model.as_deref(),
+        Some("profile-plan")
+    );
+    std::fs::write(
+        home.path().join(CONFIG_TOML_FILE),
+        "model = 'implementation'\nplan_mode_model = 'root-plan'\n",
+    )?;
+    let selected_config = home.path().join("work.config.toml");
+    std::fs::write(&selected_config, "plan_mode_model = 'profile-plan'\n")?;
+    let profiled = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(home.path().to_path_buf())
+        .loader_overrides(LoaderOverrides {
+            user_config_path: Some(selected_config.abs()),
+            user_config_profile: Some("work".parse().expect("profile name")),
+            ..LoaderOverrides::without_managed_config_for_tests()
+        })
+        .build()
+        .await?;
+    assert_eq!(profiled.plan_mode_model.as_deref(), Some("profile-plan"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn loads_compact_prompt_from_file() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let workspace = codex_home.path().join("workspace");

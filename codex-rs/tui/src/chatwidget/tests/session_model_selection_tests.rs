@@ -3,6 +3,38 @@
 use super::*;
 
 #[tokio::test]
+async fn plan_picker_session_shortcut_keeps_saved_defaults() {
+    let (mut chat, mut events, _ops) = make_chatwidget_manual(Some("gpt-5.5")).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.set_plan_mode_model(Some("saved-plan".into()));
+    chat.set_plan_mode_reasoning_effort(Some(ReasoningEffortConfig::High));
+    let plan = crate::collaboration_modes::plan_mask(chat.model_catalog.as_ref()).expect("plan");
+    chat.set_collaboration_mask(plan);
+    let preset = get_available_model(&chat, "gpt-5.6-terra");
+    chat.open_reasoning_popup(preset);
+    while events.try_recv().is_ok() {}
+    chat.handle_key_event(KeyCode::Char('s').into());
+    let events = std::iter::from_fn(|| events.try_recv().ok()).collect::<Vec<_>>();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AppEvent::SelectSessionModel { model, .. } if model == "gpt-5.6-terra"
+        )),
+        "expected session-only selection; events: {events:?}"
+    );
+    assert!(
+        events.iter().all(|event| !matches!(
+            event,
+            AppEvent::OpenPlanReasoningScopePrompt { .. }
+                | AppEvent::PersistPlanModeSelection { .. }
+                | AppEvent::PersistModelSelection { .. }
+        )),
+        "session-only selection must not save defaults; events: {events:?}"
+    );
+    assert_eq!(chat.config.plan_mode_model.as_deref(), Some("saved-plan"));
+}
+
+#[tokio::test]
 async fn session_model_selection_accepts_final_choices_without_saving() {
     for picker in [
         "auto",

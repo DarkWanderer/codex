@@ -73,13 +73,13 @@ impl App {
         request_handle: AppServerRequestHandle,
         edits: Vec<ConfigEdit>,
         setting: &str,
-    ) -> Result<()> {
+    ) -> Result<WriteStatus> {
         let response = crate::config_update::write_config_batch(request_handle, edits).await?;
         if response.status == WriteStatus::OkOverridden {
             self.chat_widget.add_warning_message(format!(
                 "Saved {setting}, but a higher-priority configuration layer overrides the saved value."
             ));
         }
-        Ok(())
+        Ok(response.status)
     }
 }

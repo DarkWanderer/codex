@@ -40,6 +40,12 @@ pub(super) fn overlay_new_session_defaults(
     if !has_launch_setting(config, cli_kv_overrides, "model_reasoning_effort") {
         config.model_reasoning_effort = defaults.model_reasoning_effort.clone();
     }
+    if !has_launch_setting(config, cli_kv_overrides, "plan_mode_model") {
+        config.plan_mode_model = defaults.plan_mode_model.clone();
+    }
+    if !has_launch_setting(config, cli_kv_overrides, "plan_mode_reasoning_effort") {
+        config.plan_mode_reasoning_effort = defaults.plan_mode_reasoning_effort.clone();
+    }
     if !has_launch_setting(config, cli_kv_overrides, "daybreak") {
         config.daybreak_enabled = defaults
             .additional

@@ -1201,7 +1201,12 @@ pub(crate) enum AppEvent {
     },
 
     /// Update the current model slug in the running app and widget.
+    ///
+    /// Applies to the active collaboration mode only.
     UpdateModel(String),
+
+    /// Update the Default-mode model without changing a Plan-mode model override.
+    UpdateDefaultModeModel(String),
 
     /// Apply a final Astra picker action and offer the flourish only if it changed the model on
     /// its original task. Automatic model updates do not use this event.
@@ -1237,6 +1242,12 @@ pub(crate) enum AppEvent {
 
     /// Persist the selected model and reasoning effort to the appropriate config.
     PersistModelSelection {
+        model: String,
+        effort: Option<ReasoningEffort>,
+    },
+
+    /// Save the Plan model and effort in one configuration update.
+    PersistPlanModeSelection {
         model: String,
         effort: Option<ReasoningEffort>,
     },
@@ -1442,9 +1453,6 @@ pub(crate) enum AppEvent {
 
     /// Persist the acknowledgement flag for the rate limit switch prompt.
     PersistRateLimitSwitchPromptHidden,
-
-    /// Persist the Plan-mode-specific reasoning effort.
-    PersistPlanModeReasoningEffort(Option<ReasoningEffort>),
 
     /// Persist the acknowledgement flag for the model migration prompt.
     PersistModelMigrationPromptAcknowledged {

@@ -6,6 +6,7 @@
 
 use super::*;
 use codex_config::ConfigLayerSource;
+use codex_protocol::config_types::ModeKind;
 
 async fn build_config_on_runtime_worker(
     builder: ConfigBuilder,
@@ -1049,9 +1050,6 @@ impl App {
             && self.chat_widget.config_ref().plan_mode_reasoning_effort
                 == Some(ReasoningEffortConfig::Ultra)
             && self.config.plan_mode_reasoning_effort != Some(ReasoningEffortConfig::Ultra);
-        // TODO(aibrahim): Remove this and don't use config as a state object.
-        // Instead, explicitly pass the stored collaboration mode's effort into new sessions.
-        self.config.model_reasoning_effort = effort.clone();
         self.chat_widget.set_reasoning_effort(effort.clone());
         if clear_ephemeral_plan_effort {
             self.chat_widget.set_plan_mode_reasoning_effort(effort);
@@ -1069,7 +1067,6 @@ impl App {
                 .reasoning_effort()
                 == Some(ReasoningEffortConfig::Ultra)
             && self.config.model_reasoning_effort != Some(ReasoningEffortConfig::Ultra);
-        self.config.plan_mode_reasoning_effort = effort.clone();
         self.chat_widget
             .set_plan_mode_reasoning_effort(effort.clone());
         if clear_ephemeral_default_effort {
@@ -1082,7 +1079,12 @@ impl App {
         model: &str,
         effort: ReasoningEffortConfig,
     ) -> Option<ReasoningEffortConfig> {
-        let default_effort = self.default_reasoning_effort_for_conversation_model(model);
+        // A Plan-mode pick is Plan-scoped; reporting a global default here would make the
+        // caller save the Plan model as the global `model`.
+        let in_plan_mode = self.chat_widget.effective_collaboration_mode().mode == ModeKind::Plan;
+        let default_effort = (!in_plan_mode)
+            .then(|| self.default_reasoning_effort_for_conversation_model(model))
+            .flatten();
         if let Some(default_effort) = default_effort.as_ref() {
             self.config.model = Some(model.to_string());
             self.config.model_reasoning_effort = Some(default_effort.clone());
@@ -1438,6 +1440,7 @@ mod tests {
     #[tokio::test]
     async fn update_reasoning_effort_updates_collaboration_mode() {
         let mut app = make_test_app().await;
+        app.config.model_reasoning_effort = Some(ReasoningEffortConfig::Low);
         app.chat_widget
             .set_reasoning_effort(Some(ReasoningEffortConfig::Medium));
 
@@ -1447,9 +1450,10 @@ mod tests {
             app.chat_widget.current_reasoning_effort(),
             Some(ReasoningEffortConfig::High)
         );
+        // The saved default only changes after a successful config write.
         assert_eq!(
             app.config.model_reasoning_effort,
-            Some(ReasoningEffortConfig::High)
+            Some(ReasoningEffortConfig::Low)
         );
     }
 
@@ -1543,7 +1547,7 @@ mod tests {
         let default_effort =
             app.on_apply_advanced_reasoning("gpt-5.5", ReasoningEffortConfig::Ultra);
 
-        assert_eq!(default_effort, Some(ReasoningEffortConfig::Low));
+        assert_eq!(default_effort, None);
         assert_eq!(
             app.chat_widget.current_reasoning_effort(),
             Some(ReasoningEffortConfig::Ultra)
@@ -1570,6 +1574,43 @@ mod tests {
                 Some(ReasoningEffortConfig::High),
             )
         );
+    }
+
+    #[tokio::test]
+    async fn conversation_reasoning_in_plan_keeps_the_global_model() {
+        let mut app = make_test_app().await;
+        app.config.model = Some("gpt-5.5".to_string());
+        app.config.model_reasoning_effort = Some(ReasoningEffortConfig::Low);
+        app.chat_widget
+            .set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
+        let default_model = app
+            .chat_widget
+            .current_collaboration_mode()
+            .model()
+            .to_string();
+        app.chat_widget
+            .handle_key_event(KeyEvent::from(KeyCode::BackTab));
+        assert_eq!(
+            app.chat_widget.active_collaboration_mode_kind(),
+            ModeKind::Plan
+        );
+
+        let default_effort =
+            app.on_apply_advanced_reasoning("gpt-5.4", ReasoningEffortConfig::Ultra);
+
+        // The caller saves the model whenever a default effort is reported.
+        assert_eq!(default_effort, None);
+        assert_eq!(app.chat_widget.current_model(), "gpt-5.4");
+        assert_eq!(
+            (
+                app.config.model.as_deref(),
+                app.config.model_reasoning_effort.clone(),
+            ),
+            (Some("gpt-5.5"), Some(ReasoningEffortConfig::Low))
+        );
+        app.chat_widget
+            .handle_key_event(KeyEvent::from(KeyCode::BackTab));
+        assert_eq!(app.chat_widget.current_model(), default_model);
     }
 
     #[tokio::test]

@@ -2078,6 +2078,9 @@ impl App {
                         .await;
                 }
             }
+            AppEvent::UpdateDefaultModeModel(model) => {
+                self.chat_widget.set_default_mode_model(&model);
+            }
             AppEvent::AstraSelectedFromModelPicker { .. } => unreachable!("picker event unwrapped"),
             AppEvent::BackgroundVoiceError { thread_id, message } => {
                 if self.chat_widget.thread_id() == Some(thread_id) {
@@ -2441,7 +2444,12 @@ impl App {
                 )
                 .await
                 {
-                    Ok(()) => {
+                    Ok(status) => {
+                        // A write hidden by a higher-priority layer is not the saved default.
+                        if status == codex_app_server_protocol::WriteStatus::Ok {
+                            self.config.model = Some(model.clone());
+                            self.config.model_reasoning_effort = effort.clone();
+                        }
                         let effort_label = effort
                             .as_ref()
                             .map(std::string::ToString::to_string)
@@ -2462,6 +2470,64 @@ impl App {
                         );
                         self.chat_widget
                             .add_error_message(format!("Failed to save default model: {error}"));
+                    }
+                }
+            }
+            AppEvent::PersistPlanModeSelection { model, effort } => {
+                self.app_event_tx.send(AppEvent::FollowTranscript);
+                let edits = vec![
+                    crate::config_update::replace_config_value(
+                        "plan_mode_model",
+                        serde_json::json!(model),
+                    ),
+                    effort.as_ref().map_or_else(
+                        || crate::config_update::clear_config_value("plan_mode_reasoning_effort"),
+                        |value| {
+                            crate::config_update::replace_config_value(
+                                "plan_mode_reasoning_effort",
+                                serde_json::json!(value.to_string()),
+                            )
+                        },
+                    ),
+                ];
+                match self
+                    .persist_model_defaults(
+                        app_server.request_handle(),
+                        edits,
+                        "Plan mode model and reasoning effort",
+                    )
+                    .await
+                {
+                    Ok(codex_app_server_protocol::WriteStatus::Ok) => {
+                        self.config.plan_mode_model = Some(model.clone());
+                        self.config.plan_mode_reasoning_effort = effort.clone();
+                        self.chat_widget.add_info_message(
+                            format!(
+                                "Plan mode default changed to {model} {}",
+                                Self::reasoning_label(effort.as_ref())
+                            ),
+                            /*hint*/ None,
+                        );
+                    }
+                    Ok(codex_app_server_protocol::WriteStatus::OkOverridden) => {
+                        if let Some(effective) = self
+                            .read_effective_config_after_overridden_write(
+                                app_server,
+                                "Plan mode settings",
+                            )
+                            .await
+                        {
+                            self.config.plan_mode_model = effective.config.plan_mode_model;
+                            self.config.plan_mode_reasoning_effort =
+                                effective.config.plan_mode_reasoning_effort;
+                        }
+                    }
+                    Err(err) => {
+                        let error = format_config_error(&err);
+                        tracing::error!(error = %error, "failed to persist Plan mode selection");
+                        self.chat_widget.add_error_message(format!(
+                            "Failed to save Plan mode settings: {error}"
+                        ));
                     }
                 }
             }
@@ -2540,7 +2606,7 @@ impl App {
                 match self.persist_model_defaults(app_server.request_handle(), edits, "default service tier")
                     .await
                 {
-                    Ok(()) => {
+                    Ok(_) => {
                         let message = if let Some(service_tier) = service_tier {
                             format!("Service tier set to {service_tier}")
                         } else {
@@ -2698,33 +2764,6 @@ impl App {
                     );
                     self.chat_widget.add_error_message(format!(
                         "Failed to save rate limit reminder preference: {err}"
-                    ));
-                }
-            }
-            AppEvent::PersistPlanModeReasoningEffort(effort) => {
-                self.app_event_tx.send(AppEvent::FollowTranscript);
-                let key_path = "plan_mode_reasoning_effort";
-                let edit = if let Some(effort) = effort {
-                    crate::config_update::replace_config_value(
-                        key_path,
-                        serde_json::json!(effort.to_string()),
-                    )
-                } else {
-                    crate::config_update::clear_config_value(key_path)
-                };
-                if let Err(err) = self.persist_model_defaults(
-                    app_server.request_handle(),
-                    vec![edit],
-                    "Plan mode reasoning effort",
-                )
-                .await
-                {
-                    tracing::error!(
-                        error = %err,
-                        "failed to persist plan mode reasoning effort"
-                    );
-                    self.chat_widget.add_error_message(format!(
-                        "Failed to save Plan mode reasoning effort: {err}"
                     ));
                 }
             }

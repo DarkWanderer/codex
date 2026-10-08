@@ -301,6 +301,10 @@ pub struct Config {
     pub developer_instructions: Option<String>,
     pub compact_prompt: Option<String>,
     pub model_reasoning_effort: Option<ReasoningEffort>,
+    #[serde(default)]
+    pub plan_mode_model: Option<String>,
+    #[serde(default)]
+    pub plan_mode_reasoning_effort: Option<ReasoningEffort>,
     pub model_reasoning_summary: Option<ReasoningSummary>,
     pub model_verbosity: Option<Verbosity>,
     pub service_tier: Option<String>,

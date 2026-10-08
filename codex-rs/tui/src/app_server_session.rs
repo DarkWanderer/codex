@@ -4194,6 +4194,7 @@ mod tests {
         // The first prompt after resume must preserve the server's restored mode.
         let (mut chat, _sender, _events, mut commands) =
             crate::chatwidget::tests::helpers::make_chatwidget_manual_with_sender().await;
+        chat.set_plan_mode_model(Some("configured-plan-model".to_string()));
         chat.handle_thread_session(started.session);
         insta::assert_snapshot!(
             "resumed_plan_mode",
@@ -4214,6 +4215,14 @@ mod tests {
             }
         });
         assert_eq!(submitted_mode, Some(response.collaboration_mode.clone()));
+        let default_mask =
+            crate::collaboration_modes::default_mode_mask(chat.model_catalog().as_ref())
+                .expect("default mode");
+        let plan_mask = crate::collaboration_modes::plan_mask(chat.model_catalog().as_ref())
+            .expect("plan mode");
+        chat.set_collaboration_mask(default_mask);
+        chat.set_collaboration_mask(plan_mask);
+        assert_eq!(chat.current_model(), "configured-plan-model");
 
         let embedded_config = ConfigBuilder::default()
             .codex_home(temp_dir.path().join("embedded-codex-home"))

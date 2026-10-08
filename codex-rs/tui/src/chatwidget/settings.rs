@@ -289,7 +289,10 @@ impl ChatWidget {
         self.local_settings.tui.theme = theme;
     }
 
-    /// Set the model in the widget's config copy and stored collaboration mode.
+    /// Set the model for the active collaboration mode only.
+    ///
+    /// Plan and Default keep separate session models, so a Plan-mode pick must not
+    /// leak into the Default model (and vice versa).
     pub(crate) fn set_model(&mut self, model: &str) {
         if model != self.current_model() {
             if self.current_model() == crate::model_catalog::LUNA_RESERVE_MODEL {
@@ -299,13 +302,45 @@ impl ChatWidget {
                     backend_banners::AutomaticModelSwitchState::default();
             }
         }
+        if self.collaboration_modes_enabled() && self.active_mode_kind() == ModeKind::Plan {
+            self.set_plan_mode_model(Some(model.to_string()));
+        } else {
+            self.set_default_mode_model(model);
+        }
+    }
+
+    /// Override the model used when Plan mode is active.
+    ///
+    /// Passing `None` makes Plan inherit the Default-mode model. When the active mask is
+    /// already Plan, the change is applied immediately.
+    pub(crate) fn set_plan_mode_model(&mut self, model: Option<String>) {
+        self.config.plan_mode_model = model;
+        if self.collaboration_modes_enabled()
+            && let Some(mask) = self.active_collaboration_mask.as_mut()
+            && mask.mode == Some(ModeKind::Plan)
+        {
+            mask.model = Some(
+                self.config
+                    .plan_mode_model
+                    .clone()
+                    .unwrap_or_else(|| self.current_collaboration_mode.model().to_string()),
+            );
+        }
+        self.refresh_effective_service_tier();
+        self.refresh_model_dependent_surfaces();
+    }
+
+    /// Set the Default-mode model without touching a Plan-mode model override.
+    pub(crate) fn set_default_mode_model(&mut self, model: &str) {
         self.current_collaboration_mode = self.current_collaboration_mode.with_updates(
             Some(model.to_string()),
             /*effort*/ None,
             /*developer_instructions*/ None,
         );
+        let plan_inherits_default = self.config.plan_mode_model.is_none();
         if self.collaboration_modes_enabled()
             && let Some(mask) = self.active_collaboration_mask.as_mut()
+            && (mask.mode != Some(ModeKind::Plan) || plan_inherits_default)
         {
             mask.model = Some(model.to_string());
         }
@@ -712,10 +747,15 @@ impl ChatWidget {
         let previous_mode = self.active_mode_kind();
         let previous_model = self.current_model().to_string();
         let previous_effort = self.effective_reasoning_effort();
-        if mask.mode == Some(ModeKind::Plan)
-            && let Some(effort) = self.config.plan_mode_reasoning_effort.clone()
-        {
-            mask.reasoning_effort = Some(Some(effort));
+        if mask.mode == Some(ModeKind::Plan) {
+            if let Some(effort) = self.config.plan_mode_reasoning_effort.clone() {
+                mask.reasoning_effort = Some(Some(effort));
+            }
+            // The Plan preset has no model of its own; without this, a mode switch would
+            // fall back to the Default model even when Plan has its own.
+            if mask.model.is_none() {
+                mask.model = self.config.plan_mode_model.clone();
+            }
         }
         self.active_collaboration_mask = Some(mask);
         self.update_collaboration_mode_indicator();

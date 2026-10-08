@@ -1302,6 +1302,9 @@
           ],
           "description": "Deprecated: `friendly` and `pragmatic` no longer select a style."
         },
+        "plan_mode_model": {
+          "type": "string"
+        },
         "plan_mode_reasoning_effort": {
           "$ref": "#/definitions/ReasoningEffort"
         },
@@ -7691,6 +7694,9 @@
         }
       ],
       "description": "Deprecated: `friendly` and `pragmatic` no longer select a style."
+    },
+    "plan_mode_model": {
+      "type": "string"
     },
     "plan_mode_reasoning_effort": {
       "$ref": "#/definitions/ReasoningEffort"

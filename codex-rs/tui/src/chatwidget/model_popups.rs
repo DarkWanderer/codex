@@ -349,15 +349,15 @@ impl ChatWidget {
         if !self.collaboration_modes_enabled()
             || selected_model == LUNA_RESERVE_MODEL
             || self.active_mode_kind() != ModeKind::Plan
-            || selected_model != self.current_model()
         {
             return false;
         }
 
         // Prompt whenever the selection is not a true no-op for both:
-        // 1) the active Plan-mode effective reasoning, and
+        // 1) the active Plan-mode effective model and reasoning, and
         // 2) the stored global defaults that would be updated by the fallback path.
-        selected_effort != self.effective_reasoning_effort()
+        selected_model != self.current_model()
+            || selected_effort != self.effective_reasoning_effort()
             || selected_model != self.current_collaboration_mode.model()
             || selected_effort != self.current_collaboration_mode.reasoning_effort()
     }
@@ -377,7 +377,8 @@ impl ChatWidget {
             }
             None => "the selected reasoning".to_string(),
         };
-        let plan_only_description = format!("Always use {reasoning_phrase} in Plan mode");
+        let plan_only_description =
+            format!("Always use {model} with {reasoning_phrase} in Plan mode");
         let plan_reasoning_source = if let Some(plan_override) =
             self.config.plan_mode_reasoning_effort.as_ref()
         {
@@ -402,9 +403,9 @@ impl ChatWidget {
             "built-in Plan default".to_string()
         };
         let all_modes_description = format!(
-            "Set the global default reasoning level and Plan mode override, replacing the current {plan_reasoning_source}"
+            "Set the global default and Plan mode override to {model} with {reasoning_phrase}, replacing the current {plan_reasoning_source}"
         );
-        let subtitle = format!("Choose where to apply {reasoning_phrase}.");
+        let subtitle = format!("Choose where to apply {model} with {reasoning_phrase}.");
         let warning = effort
             .as_ref()
             .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
@@ -420,7 +421,10 @@ impl ChatWidget {
                         .into_picker_event(sparkle_thread, model.clone()),
                 );
                 tx.send(AppEvent::UpdatePlanModeReasoningEffort(effort.clone()));
-                tx.send(AppEvent::PersistPlanModeReasoningEffort(effort.clone()));
+                tx.send(AppEvent::PersistPlanModeSelection {
+                    model: model.clone(),
+                    effort: effort.clone(),
+                });
                 if let Some(warning) = warning.clone() {
                     tx.send(AppEvent::InsertHistoryCell(Box::new(
                         history_cell::new_warning_event(warning),
@@ -433,9 +437,13 @@ impl ChatWidget {
                 AstraModelPickerAction::UpdateModel
                     .into_picker_event(sparkle_thread, model.clone()),
             );
+            tx.send(AppEvent::UpdateDefaultModeModel(model.clone()));
             tx.send(AppEvent::UpdateReasoningEffort(effort.clone()));
             tx.send(AppEvent::UpdatePlanModeReasoningEffort(effort.clone()));
-            tx.send(AppEvent::PersistPlanModeReasoningEffort(effort.clone()));
+            tx.send(AppEvent::PersistPlanModeSelection {
+                model: model.clone(),
+                effort: effort.clone(),
+            });
             tx.send(AppEvent::PersistModelSelection {
                 model: model.clone(),
                 effort: effort.clone(),

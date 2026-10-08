@@ -1883,6 +1883,8 @@ impl App {
             .as_ref()
             .is_some_and(|session| session.collaboration_mode.is_some());
         if let Some(session) = snapshot.session {
+            self.chat_widget
+                .set_plan_mode_model(self.config.plan_mode_model.clone());
             if session.reasoning_effort != Some(ReasoningEffortConfig::Ultra) {
                 self.chat_widget
                     .set_plan_mode_reasoning_effort(self.config.plan_mode_reasoning_effort.clone());
