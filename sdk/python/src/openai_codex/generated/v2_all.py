@@ -10754,6 +10754,8 @@ class Config(BaseModel):
     model_reasoning_effort: ReasoningEffort | None = None
     model_reasoning_summary: ReasoningSummary | None = None
     model_verbosity: Verbosity | None = None
+    plan_mode_model: str | None = None
+    plan_mode_reasoning_effort: ReasoningEffort | None = None
     review_model: str | None = None
     sandbox_mode: SandboxMode | None = None
     sandbox_workspace_write: SandboxWorkspaceWrite | None = None

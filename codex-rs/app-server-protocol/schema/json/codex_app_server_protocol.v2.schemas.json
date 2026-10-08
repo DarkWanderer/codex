@@ -5376,6 +5376,24 @@
             }
           ]
         },
+        "plan_mode_model": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plan_mode_reasoning_effort": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReasoningEffort"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "review_model": {
           "type": [
             "string",

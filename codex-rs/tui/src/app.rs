@@ -833,7 +833,14 @@ impl App {
             is_first_run: false,
             status_account_display: self.chat_widget.status_account_display().cloned(),
             initial_plan_type: self.chat_widget.current_plan_type(),
-            model: Some(self.chat_widget.current_model().to_string()),
+            // The Default-mode model, not the active one: in Plan mode the active model is the
+            // Plan model, which must not become the new widget's Default model.
+            model: Some(
+                self.chat_widget
+                    .current_collaboration_mode()
+                    .model()
+                    .to_string(),
+            ),
             startup_tooltip_override: None,
             status_line_invalid_items_warned: self.status_line_invalid_items_warned.clone(),
             terminal_title_invalid_items_warned: self.terminal_title_invalid_items_warned.clone(),

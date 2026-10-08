@@ -110,6 +110,10 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
                     "plan_mode_reasoning_effort".into(),
                     toml::Value::String("low".into()),
                 ),
+                (
+                    "plan_mode_model".into(),
+                    toml::Value::String("forced-plan".into()),
+                ),
                 ("service_tier".into(), toml::Value::String("flex".into())),
             ]
         } else {
@@ -148,12 +152,19 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
         }
         while events.try_recv().is_ok() {}
         let mut tui = crate::tui::test_support::make_test_tui()?;
-        for event in [
+        let config_before = (
+            app.config.model.clone(),
+            app.config.model_reasoning_effort.clone(),
+        );
+        for (index, event) in [
             AppEvent::PersistModelSelection {
                 model: "gpt-5.5".into(),
                 effort: Some(ReasoningEffortConfig::High),
             },
-            AppEvent::PersistPlanModeReasoningEffort(Some(ReasoningEffortConfig::High)),
+            AppEvent::PersistPlanModeSelection {
+                model: "chosen-plan".into(),
+                effort: Some(ReasoningEffortConfig::High),
+            },
             AppEvent::PersistServiceTierSelection {
                 service_tier: Some(ServiceTier::Fast.request_value().into()),
             },
@@ -161,8 +172,28 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
                 model: "gpt-5.5".into(),
                 effort: ReasoningEffortConfig::Ultra,
             },
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             Box::pin(app.handle_event(&mut tui, &mut server, event)).await?;
+            if index == 0 {
+                // Only a write that took effect becomes the saved default for new sessions.
+                assert_eq!(
+                    (
+                        app.config.model.clone(),
+                        app.config.model_reasoning_effort.clone()
+                    ),
+                    if outcome == "saved" {
+                        (
+                            Some("gpt-5.5".to_string()),
+                            Some(ReasoningEffortConfig::High),
+                        )
+                    } else {
+                        config_before.clone()
+                    }
+                );
+            }
         }
         let mut service_tier_error = None;
         let messages = std::iter::from_fn(|| events.try_recv().ok())
@@ -203,11 +234,15 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
             assert!(!messages.contains("Model changed"));
             assert!(!messages.contains("Service tier set"));
         } else {
+            // The conversation-level Ultra pick re-saves the default effort, which is the
+            // one just saved only when that earlier write was not overridden.
+            let default_effort = if outcome == "saved" { "high" } else { "medium" };
             assert_eq!(
                 toml::from_str::<toml::Value>(&persisted)?,
                 toml::Value::Table(toml::toml! {
                     model = "gpt-5.5"
-                    model_reasoning_effort = "medium"
+                    model_reasoning_effort = default_effort
+                    plan_mode_model = "chosen-plan"
                     plan_mode_reasoning_effort = "high"
                     service_tier = "fast"
                 })
@@ -215,10 +250,50 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
         }
         assert_eq!(std::fs::read(&local_config_path).ok(), local_config_before);
         assert_eq!(
+            app.config.plan_mode_model.as_deref(),
+            match outcome {
+                "saved" => Some("chosen-plan"),
+                "overridden" => Some("forced-plan"),
+                _ => None,
+            }
+        );
+        assert_eq!(
             std::fs::read_to_string(&base_path)?,
             "# Base configuration stays unchanged.\n"
         );
         server.shutdown().await?;
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn forked_or_resumed_widget_seeds_default_mode_from_plan_mode() -> Result<()> {
+    let mut app = make_test_app().await;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    app.chat_widget
+        .set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
+    let default_model = app
+        .chat_widget
+        .current_collaboration_mode()
+        .model()
+        .to_string();
+    app.chat_widget
+        .set_plan_mode_model(Some("plan-model".to_string()));
+    app.chat_widget
+        .handle_key_event(KeyEvent::from(KeyCode::BackTab));
+    assert_eq!(app.chat_widget.current_model(), "plan-model");
+
+    let init = app.chatwidget_init_for_forked_or_resumed_thread(
+        &mut tui,
+        app.config.clone(),
+        /*initial_user_message*/ None,
+    );
+
+    // The Plan model must not become the new widget's Default model.
+    assert_eq!(init.model.as_deref(), Some(default_model.as_str()));
+    assert_eq!(
+        ChatWidget::new_with_app_event(init).current_model(),
+        default_model
+    );
     Ok(())
 }

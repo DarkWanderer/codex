@@ -379,7 +379,7 @@ async fn reasoning_shortcut_in_plan_mode_updates_plan_override_without_prompt_or
     assert!(
         events
             .iter()
-            .all(|event| !matches!(event, AppEvent::PersistPlanModeReasoningEffort(_))),
+            .all(|event| !matches!(event, AppEvent::PersistPlanModeSelection { .. })),
         "expected no Plan reasoning persistence event; events: {events:?}"
     );
     assert!(
@@ -427,7 +427,7 @@ async fn advanced_reasoning_selection_in_plan_mode_uses_expected_scope() {
             assert!(events.iter().all(|event| !matches!(
                 event,
                 AppEvent::OpenPlanReasoningScopePrompt { .. }
-                    | AppEvent::PersistPlanModeReasoningEffort(_)
+                    | AppEvent::PersistPlanModeSelection { .. }
                     | AppEvent::PersistModelSelection { .. }
             )));
         } else {
@@ -466,7 +466,7 @@ async fn plan_mode_reasoning_override_is_marked_current_in_reasoning_popup() {
 }
 
 #[tokio::test]
-async fn reasoning_selection_in_plan_mode_model_switch_does_not_open_scope_prompt_event() {
+async fn reasoning_selection_in_plan_mode_model_switch_opens_scope_prompt_event() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
     chat.thread_id = Some(ThreadId::new());
     chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
@@ -484,27 +484,83 @@ async fn reasoning_selection_in_plan_mode_model_switch_does_not_open_scope_promp
     assert!(
         events.iter().any(|event| matches!(
             event,
-            AppEvent::UpdateModel(model) if model == "gpt-5.6-terra"
+            AppEvent::OpenPlanReasoningScopePrompt {
+                model,
+                effort: Some(_),
+            } if model == "gpt-5.6-terra"
         )),
-        "expected model update event; events: {events:?}"
+        "expected scope prompt for a Plan-mode model switch; events: {events:?}"
     );
     assert!(
         events
             .iter()
-            .any(|event| matches!(event, AppEvent::UpdateReasoningEffort(Some(_)))),
-        "expected reasoning update event; events: {events:?}"
+            .all(|event| !matches!(event, AppEvent::UpdateModel(_))),
+        "expected no model update before a scope is chosen; events: {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn reasoning_selection_in_plan_mode_switching_back_to_default_model_opens_scope_prompt() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
+    chat.set_plan_mode_model(Some("gpt-5.6-terra".to_string()));
+    let plan_mask = collaboration_modes::plan_mask(chat.model_catalog.as_ref())
+        .expect("expected plan collaboration mode");
+    chat.set_collaboration_mask(plan_mask);
+    let _ = drain_insert_history(&mut rx);
+    set_chatgpt_auth(&mut chat);
+    assert_eq!(chat.current_model(), "gpt-5.6-terra");
+
+    // The selection matches the Default model and every effort, but not the Plan model.
+    chat.set_reasoning_effort(Some(ReasoningEffortConfig::Medium));
+    let preset = get_available_model(&chat, "gpt-5.5");
+    chat.open_reasoning_popup(preset);
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AppEvent::OpenPlanReasoningScopePrompt { model, .. } if model == "gpt-5.5"
+        )),
+        "expected scope prompt; events: {events:?}"
     );
 }
 
 #[tokio::test]
 async fn plan_reasoning_scope_popup_all_modes_persists_global_and_plan_override() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
-    chat.open_plan_reasoning_scope_prompt("gpt-5.5".to_string(), Some(ReasoningEffortConfig::High));
+    chat.open_plan_reasoning_scope_prompt(
+        "gpt-5.6-terra".to_string(),
+        Some(ReasoningEffortConfig::High),
+    );
 
     chat.handle_key_event(KeyEvent::from(KeyCode::Down));
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AppEvent::UpdateModel(model) if model == "gpt-5.6-terra"
+        )),
+        "expected active-mode model update; events: {events:?}"
+    );
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AppEvent::UpdateDefaultModeModel(model) if model == "gpt-5.6-terra"
+        )),
+        "expected Default-mode model update; events: {events:?}"
+    );
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AppEvent::UpdateReasoningEffort(Some(ReasoningEffortConfig::High))
+        )),
+        "expected Default-mode reasoning update; events: {events:?}"
+    );
     assert!(
         events.iter().any(|event| matches!(
             event,
@@ -515,7 +571,8 @@ async fn plan_reasoning_scope_popup_all_modes_persists_global_and_plan_override(
     assert!(
         events.iter().any(|event| matches!(
             event,
-            AppEvent::PersistPlanModeReasoningEffort(Some(ReasoningEffortConfig::High))
+            AppEvent::PersistPlanModeSelection { model, effort: Some(ReasoningEffortConfig::High) }
+                if model == "gpt-5.6-terra"
         )),
         "expected updated plan override to be persisted; events: {events:?}"
     );
@@ -523,27 +580,9 @@ async fn plan_reasoning_scope_popup_all_modes_persists_global_and_plan_override(
         events.iter().any(|event| matches!(
             event,
             AppEvent::PersistModelSelection { model, effort: Some(ReasoningEffortConfig::High) }
-                if model == "gpt-5.5"
+                if model == "gpt-5.6-terra"
         )),
         "expected global model reasoning selection persistence; events: {events:?}"
-    );
-}
-
-#[test]
-fn plan_mode_prompt_notification_uses_dedicated_type_name() {
-    let notification = Notification::PlanModePrompt {
-        title: PLAN_IMPLEMENTATION_TITLE.to_string(),
-    };
-
-    assert!(notification.allowed_for(&Notifications::Custom(
-        vec!["plan-mode-prompt".to_string(),]
-    )));
-    assert!(!notification.allowed_for(&Notifications::Custom(vec![
-        "approval-requested".to_string(),
-    ])));
-    assert_eq!(
-        notification.display(),
-        format!("Plan mode prompt: {PLAN_IMPLEMENTATION_TITLE}")
     );
 }
 
@@ -663,8 +702,14 @@ async fn plan_reasoning_scope_popup_mentions_selected_reasoning() {
     );
 
     let popup = render_bottom_popup(&chat, /*width*/ 100);
-    assert!(popup.contains("Choose where to apply medium reasoning."));
-    assert!(popup.contains("Always use medium reasoning in Plan mode"));
+    assert!(popup.contains("Choose where to apply gpt-5.5 with medium reasoning."));
+    // The description column wraps, so compare without whitespace.
+    assert!(
+        popup
+            .split_whitespace()
+            .collect::<String>()
+            .contains("Alwaysusegpt-5.5withmediumreasoninginPlanmode")
+    );
     assert!(popup.contains("Apply to Plan mode override"));
     assert!(popup.contains("Apply to global default and Plan mode override"));
     assert!(
@@ -695,11 +740,21 @@ async fn plan_reasoning_scope_popup_mentions_built_in_plan_default_when_no_overr
 #[tokio::test]
 async fn plan_reasoning_scope_popup_plan_only_does_not_update_all_modes_reasoning() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
-    chat.open_plan_reasoning_scope_prompt("gpt-5.5".to_string(), Some(ReasoningEffortConfig::High));
+    chat.open_plan_reasoning_scope_prompt(
+        "gpt-5.6-terra".to_string(),
+        Some(ReasoningEffortConfig::High),
+    );
 
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AppEvent::UpdateModel(model) if model == "gpt-5.6-terra"
+        )),
+        "expected active-mode model update; events: {events:?}"
+    );
     assert!(
         events.iter().any(|event| matches!(
             event,
@@ -708,10 +763,21 @@ async fn plan_reasoning_scope_popup_plan_only_does_not_update_all_modes_reasonin
         "expected plan-only reasoning update; events: {events:?}"
     );
     assert!(
-        events
-            .iter()
-            .all(|event| !matches!(event, AppEvent::UpdateReasoningEffort(_))),
-        "did not expect all-modes reasoning update; events: {events:?}"
+        events.iter().any(|event| matches!(
+            event,
+            AppEvent::PersistPlanModeSelection { model, effort: Some(ReasoningEffortConfig::High) }
+                if model == "gpt-5.6-terra"
+        )),
+        "expected plan-only persistence; events: {events:?}"
+    );
+    assert!(
+        events.iter().all(|event| !matches!(
+            event,
+            AppEvent::UpdateReasoningEffort(_)
+                | AppEvent::UpdateDefaultModeModel(_)
+                | AppEvent::PersistModelSelection { .. }
+        )),
+        "did not expect all-modes updates; events: {events:?}"
     );
 }
 

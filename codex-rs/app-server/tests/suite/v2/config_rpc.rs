@@ -509,6 +509,8 @@ async fn config_read_returns_effective_and_layers() -> Result<()> {
         &codex_home,
         r#"
 model = "gpt-user"
+plan_mode_model = "gpt-plan"
+plan_mode_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 "#,
     )?;
@@ -534,6 +536,11 @@ sandbox_mode = "workspace-write"
     } = timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request_id)).await??;
 
     assert_eq!(config.model.as_deref(), Some("gpt-user"));
+    assert_eq!(config.plan_mode_model.as_deref(), Some("gpt-plan"));
+    assert_eq!(
+        config.plan_mode_reasoning_effort,
+        Some(ReasoningEffort::High)
+    );
     assert_eq!(
         origins.get("model").expect("origin").name,
         ConfigLayerSource::User {

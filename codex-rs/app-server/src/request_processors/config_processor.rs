@@ -165,6 +165,7 @@ impl ConfigRequestProcessor {
                     edit.key_path.as_str(),
                     "model"
                         | "model_reasoning_effort"
+                        | "plan_mode_model"
                         | "plan_mode_reasoning_effort"
                         | "service_tier"
                         | "personality"

@@ -80,7 +80,7 @@ impl App {
             )
             .await
         {
-            Ok(()) => match crate::config_update::read_effective_config(
+            Ok(_) => match crate::config_update::read_effective_config(
                 app_server.request_handle(),
                 self.chat_widget
                     .config_ref()

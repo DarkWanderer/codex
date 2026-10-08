@@ -343,6 +343,7 @@ async fn new_config(
         zsh_path: None,
         model_reasoning_effort: None,
         plan_mode_reasoning_effort: None,
+        plan_mode_model: None,
         model_reasoning_summary: None,
         model_catalog: None,
         model_verbosity: None,

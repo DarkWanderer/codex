@@ -390,13 +390,18 @@ impl ChatWidget {
         {
             collaboration_mode.reasoning_effort = Some(Some(effort));
         }
-        if self.turn_lifecycle.agent_turn_running
-            && self.active_collaboration_mask.as_ref() != Some(&collaboration_mode)
-        {
-            self.add_error_message(
-                "Cannot switch collaboration mode while a turn is running.".to_string(),
-            );
-            return;
+        if self.turn_lifecycle.agent_turn_running {
+            if self.active_mode_kind() != collaboration_mode.mode.unwrap_or(ModeKind::Default) {
+                self.add_error_message(
+                    "Cannot switch collaboration mode while a turn is running.".to_string(),
+                );
+                return;
+            }
+            // A preset for the current mode can differ from its resolved model settings.
+            collaboration_mode = self
+                .active_collaboration_mask
+                .clone()
+                .unwrap_or(collaboration_mode);
         }
         self.set_collaboration_mask_from_user_action(collaboration_mode);
         let should_queue = self.is_plan_streaming_in_tui();
